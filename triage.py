@@ -16,7 +16,9 @@ BASE = CFG.get("base_branch", "main")
 LABEL = "auto-triage"
 ASSIGNEE = CFG["assignee"]  # ponytail: a person while testing, swap for a bot user later
 JIRA_PROJECT = CFG["jira_project"]
-JIRA_FIELDS = CFG.get("jira_fields", {})  # extra required custom fields for your Jira project
+JIRA_FIELDS = CFG.get("jira_fields", {})
+SUPPORT_PROJECT = CFG.get("support_project")  # e.g. the support Jira project key
+SUPPORT_BOT = CFG.get("support_bot")  # assignee that triggers the support flow  # extra required custom fields for your Jira project
 PROMPT = """You are triaging a production error for the application in this repo.
 
 Sentry issue:
@@ -29,6 +31,20 @@ If the cause is a third party, infra, data, config or a frontend library, make n
 Your final reply must be ONLY a JSON object, no prose:
 {{"title": "short ticket title", "severity": "low|medium|high",
   "root_cause": "2-4 sentences", "fix_summary": "what was changed, or why no code change is the right fix",
+  "pr_needed": true or false}}"""
+
+SUPPORT_PROMPT = """You are triaging a support request raised by a person using the application in this repo.
+
+Support ticket:
+{issue}
+
+Decide whether this is a bug in THIS repo's code. If so, read the relevant code, find the probable root cause,
+and only edit files if a small, safe change would fix it. Follow CLAUDE.md. Do not commit.
+If it is a question, a data or config problem, a request for something new, or lives in another codebase, make no edits.
+
+Your final reply must be ONLY a JSON object, no prose:
+{{"title": "short ticket title", "category": "bug|data|question|feature|other", "severity": "low|medium|high",
+  "root_cause": "2-4 sentences, or what the user actually needs", "fix_summary": "what was changed, or why no code change is the right fix",
   "pr_needed": true or false}}"""
 
 
@@ -66,18 +82,18 @@ def summarize(issue):
     }, indent=2)
 
 
-def existing_ticket(issue_id):
+def existing_ticket(label):
     out = run(["acli", "jira", "workitem", "search", "--jql",
-               f'project = {JIRA_PROJECT} AND labels = "sentry-{issue_id}"', "--limit", "1", "--fields", "key"])
+               f'project = {JIRA_PROJECT} AND labels = "{label}"', "--limit", "1", "--fields", "key"])
     m = re.search(rf"{JIRA_PROJECT}-\d+", out)
     return m.group(0) if m else None
 
 
-def analyze(issue_text):
+def analyze(prompt):
     wt = tempfile.mkdtemp(prefix="sentry-triage-")
     run(["git", "-C", REPO_DIR, "fetch", "origin", BASE, "-q"])
     run(["git", "-C", REPO_DIR, "worktree", "add", "-d", wt, f"origin/{BASE}", "-f"])
-    out = run(["claude", "-p", PROMPT.format(issue=issue_text), "--permission-mode", "acceptEdits",
+    out = run(["claude", "-p", prompt, "--permission-mode", "acceptEdits",
                "--allowedTools", "Read,Grep,Glob,Edit,Write", "--output-format", "json"], cwd=wt)
     reply = json.loads(out)["result"]
     # ponytail: first {...} block in the reply, Claude is told to return JSON only
@@ -96,18 +112,43 @@ def adf(text):
             "content": [{"type": "paragraph", "content": inline(l)} for l in text.split("\n") if l.strip()]}
 
 
-def create_ticket(issue, result):
+def create_ticket(item, result):
     description = (f"{result['root_cause']}\n\nSuggested fix: {result['fix_summary']}\n\n"
-                   f"Severity (Claude's estimate): {result['severity']}\n"
-                   f"Sentry: https://{ORG}.sentry.io/issues/{issue['id']}/\n"
-                   f"Events: {issue['count']}, users: {issue['userCount']}, first seen {issue['firstSeen']}\n\n"
+                   f"Severity (Claude's estimate): {result['severity']}\n{item['links']}\n\n"
                    "Created automatically by sentry-triage. Close it if it is not worth fixing.")
-    payload = {"projectKey": JIRA_PROJECT, "type": "Bug", "summary": f"[Sentry] {result['title']}",
-               "description": adf(description), "assignee": ASSIGNEE, "labels": [LABEL, f"sentry-{issue['id']}"],
+    kind = "Bug" if result.get("category", "bug") == "bug" else "Task"
+    payload = {"projectKey": JIRA_PROJECT, "type": kind, "summary": f"{item['prefix']} {result['title']}",
+               "description": adf(description), "assignee": ASSIGNEE, "labels": [LABEL, item["label"]],
                "additionalAttributes": JIRA_FIELDS}
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
         json.dump(payload, f)
     return re.search(rf"{JIRA_PROJECT}-\d+", run(["acli", "jira", "workitem", "create", "--from-json", f.name])).group(0)
+
+
+def adf_text(node):
+    """Flatten Jira's document format to plain text."""
+    if isinstance(node, str):
+        return node
+    if isinstance(node, list):
+        return "".join(adf_text(n) for n in node)
+    text = node.get("text", "") + adf_text(node.get("content", []))
+    return text + "\n" if node.get("type") in ("paragraph", "heading", "listItem") else text
+
+
+def sentry_item(issue):
+    url = f"https://{ORG}.sentry.io/issues/{issue['id']}/"
+    return {"label": f"sentry-{issue['id']}", "title": issue["title"], "prefix": "[Sentry]",
+            "prompt": PROMPT.format(issue=summarize(issue)), "notify": None,
+            "links": f"Sentry: {url}\nEvents: {issue['count']}, users: {issue['userCount']}, first seen {issue['firstSeen']}"}
+
+
+def support_item(key):
+    f = json.loads(run(["acli", "jira", "workitem", "view", key, "--json"]))["fields"]
+    text = f"{f['summary']}\n\n{adf_text(f.get('description') or '')}".strip()
+    url = f"https://{JIRA_SITE}/browse/{key}"
+    return {"label": f"msup-{key}", "title": f"{key} {f['summary']}", "prefix": f"[{key}]",
+            "prompt": SUPPORT_PROMPT.format(issue=f"{key}\n{text[:6000]}"), "notify": key,
+            "links": f"Support ticket: {url}"}
 
 
 def open_pr(wt, key, result):
@@ -126,24 +167,36 @@ def open_pr(wt, key, result):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--project", default=CFG["sentry_project"], help="Sentry project slug ")
+    ap.add_argument("--project", default=CFG["sentry_project"], help="Sentry project slug")
     ap.add_argument("--since", default="24h", help="first seen within, e.g. 24h or 14d")
     ap.add_argument("--limit", type=int, default=5)
     ap.add_argument("--issue", help="triage one Sentry issue id instead of searching")
+    ap.add_argument("--support", action="store_true", help="triage support tickets assigned to the bot instead of Sentry")
+    ap.add_argument("--ticket", help="with --support: triage one support ticket key instead of searching")
     ap.add_argument("--live", action="store_true", help="really create tickets, branches and PRs")
     a = ap.parse_args()
 
-    if a.issue:
-        issues = [sentry(f"organizations/{ORG}/issues/{a.issue}/")]
+    if a.support:
+        if a.ticket:
+            keys = [a.ticket]
+        else:
+            out = run(["acli", "jira", "workitem", "search", "--jql", f'project = {SUPPORT_PROJECT} AND assignee = "{SUPPORT_BOT}" '
+                       "AND statusCategory != Done ORDER BY created DESC", "--limit", "50", "--fields", "key"])
+            keys = list(dict.fromkeys(re.findall(rf"{SUPPORT_PROJECT}-\d+", out)))
+        make_item = support_item
+        found = keys
     else:
-        issues = sentry(f"projects/{ORG}/{a.project}/issues/", query=f"is:unresolved environment:production firstSeen:-{a.since}")
-    print(f"{len(issues)} production issue(s), mode: {'LIVE' if a.live else 'dry-run'}")
-    for issue in issues[: a.limit]:
-        print(f"\n== {issue['id']} {issue['title'][:80]}")
-        if key := existing_ticket(issue["id"]):
+        found = [sentry(f"organizations/{ORG}/issues/{a.issue}/")] if a.issue else sentry(
+            f"projects/{ORG}/{a.project}/issues/", query=f"is:unresolved environment:production firstSeen:-{a.since}")
+        make_item = sentry_item
+    print(f"{len(found)} {'support ticket' if a.support else 'production issue'}(s), mode: {'LIVE' if a.live else 'dry-run'}")
+    for src in found[: a.limit]:
+        item = make_item(src)
+        print(f"\n== {item['title'][:90]}")
+        if key := existing_ticket(item["label"]):
             print(f"   already has {key}, skipping")
             continue
-        wt, result, diff = analyze(summarize(issue))
+        wt, result, diff = analyze(item["prompt"])
         print(f"   [{result['severity']}] {result['title']}\n   cause: {result['root_cause']}\n   fix: {result['fix_summary']}")
         has_pr = result["pr_needed"] and diff.strip()
         if not a.live:
@@ -151,17 +204,19 @@ def main():
             if has_pr:
                 print(diff)
         else:
-            key = create_ticket(issue, result)
-            print(f"   ticket {key}: https://{JIRA_SITE}/browse/{key}")
-            print(f"   sentry: https://{ORG}.sentry.io/issues/{issue['id']}/")
-            if has_pr:
-                pr = open_pr(wt, key, result)
+            key = create_ticket(item, result)
+            print(f"   ticket {key}: https://{JIRA_SITE}/browse/{key}\n   {item['links']}")
+            pr = open_pr(wt, key, result) if has_pr else None
+            if pr:
                 print(f"   draft PR {pr}")
                 run(["acli", "jira", "workitem", "comment", "create", "--key", key, "--body", f"Draft fix: {pr}"])
+            if item["notify"]:  # the only write to the support ticket
+                note = f"Triaged by Claude: https://{JIRA_SITE}/browse/{key}" + (f"\nDraft fix: {pr}" if pr else "\nNo code change needed.")
+                run(["acli", "jira", "workitem", "comment", "create", "--key", item["notify"], "--body", note])
         subprocess.run(["git", "-C", REPO_DIR, "worktree", "remove", "--force", wt], capture_output=True)
-    extra = len(issues) - a.limit
+    extra = len(found) - a.limit
     if extra > 0:
-        print(f"\n{extra} more issue(s) not processed, raise --limit")
+        print(f"\n{extra} more not processed, raise --limit")
 
 
 if __name__ == "__main__":

@@ -6,5 +6,7 @@
   "assignee": "you@example.com",
   "repo_dir": "~/path/to/the/repo/that/reports/to/sentry",
   "base_branch": "main",
-  "jira_fields": {}
+  "jira_fields": {},
+  "support_project": "SUP",
+  "support_bot": "claude-bot@example.com"
 }

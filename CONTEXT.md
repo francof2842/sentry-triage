@@ -12,8 +12,12 @@ _Avoid_: error, bug, event
 Sentry events whose environment is `production`. Staging, demo and dev events are ignored.
 _Avoid_: prod traffic
 
+**Support Ticket**:
+A request raised by someone in the support Jira project (MSUP). It stays where it is and is never reassigned or closed by the tool. A Support Ticket assigned to the Claude bot is a second way work enters the tool, alongside a Sentry Issue.
+_Avoid_: ticket (unqualified)
+
 **Ticket**:
-The Jira work item created for a Sentry Issue so someone owns it.
+The engineering Jira work item the tool creates for a Sentry Issue or a Support Ticket so one person owns the fix.
 _Avoid_: alert, bug report
 
 **Draft Fix**:
@@ -29,6 +33,7 @@ The person responsible for responding to a Ticket right now, from PagerDuty. Def
 ## Relationships
 
 - A **Sentry Issue** in **Production** produces one **Ticket**
+- A **Support Ticket** assigned to the Claude bot produces one **Ticket** and links back to it
 - A **Ticket** may have one **Draft Fix**
 - An **Alert** announces a **Ticket** and may mention **On-call**
 

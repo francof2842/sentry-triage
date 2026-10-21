@@ -1,0 +1,10 @@
+{
+  "sentry_org": "your-sentry-org-slug",
+  "sentry_project": "your-sentry-project-slug",
+  "jira_site": "your-company.atlassian.net",
+  "jira_project": "ABC",
+  "assignee": "you@example.com",
+  "repo_dir": "~/path/to/the/repo/that/reports/to/sentry",
+  "base_branch": "main",
+  "jira_fields": {}
+}

@@ -13,7 +13,7 @@ Sentry events whose environment is `production`. Staging, demo and dev events ar
 _Avoid_: prod traffic
 
 **Support Ticket**:
-A request raised by someone in the support Jira project (MSUP). It stays where it is and is never reassigned or closed by the tool. A Support Ticket assigned to the Claude bot is a second way work enters the tool, alongside a Sentry Issue.
+A request raised by someone in the support Jira project. It stays where it is and is never reassigned or closed by the tool. A Support Ticket assigned to the Claude bot is a second way work enters the tool, alongside a Sentry Issue.
 _Avoid_: ticket (unqualified)
 
 **Ticket**:

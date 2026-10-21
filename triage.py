@@ -146,7 +146,7 @@ def support_item(key):
     f = json.loads(run(["acli", "jira", "workitem", "view", key, "--json"]))["fields"]
     text = f"{f['summary']}\n\n{adf_text(f.get('description') or '')}".strip()
     url = f"https://{JIRA_SITE}/browse/{key}"
-    return {"label": f"msup-{key}", "title": f"{key} {f['summary']}", "prefix": f"[{key}]",
+    return {"label": f"support-{key}", "title": f"{key} {f['summary']}", "prefix": f"[{key}]",
             "prompt": SUPPORT_PROMPT.format(issue=f"{key}\n{text[:6000]}"), "notify": key,
             "links": f"Support ticket: {url}"}
 

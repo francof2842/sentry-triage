@@ -27,7 +27,7 @@ python3 triage.py --support                  # every open support ticket assigne
 python3 triage.py --support --ticket SUP-123 # one specific ticket
 ```
 
-The flow is the same, with the support ticket's text instead of a stack trace. Claude first decides whether it is a bug in the repo, a data or config problem, a question or a feature request. A new engineering ticket is created for it (labeled `msup-<key>` so reruns skip it), a draft PR only when there is a code change, and the new ticket is assigned to `assignee` in the config. The support ticket itself is never reassigned or closed: the only thing written to it is one comment linking the new ticket and PR.
+The flow is the same, with the support ticket's text instead of a stack trace. Claude first decides whether it is a bug in the repo, a data or config problem, a question or a feature request. A new engineering ticket is created for it (labeled `support-<key>` so reruns skip it), a draft PR only when there is a code change, and the new ticket is assigned to `assignee` in the config. The support ticket itself is never reassigned or closed: the only thing written to it is one comment linking the new ticket and PR.
 
 Support tickets can contain customer details and their text is sent to an LLM, so check your data policy before pointing this at real tickets.
 

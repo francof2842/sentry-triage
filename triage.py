@@ -9,6 +9,11 @@ import argparse, json, os, re, subprocess, sys, tempfile, urllib.parse, urllib.r
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CFG = json.load(open(os.path.join(HERE, "config.json")))  # copy config.example.json and fill it in
+for line in open(os.path.expanduser(CFG["env_file"])) if CFG.get("env_file") else []:  # optional `export KEY=value` file
+    if m := re.match(r"\s*(?:export\s+)?(\w+)=(.*)", line):
+        os.environ.setdefault(m[1], m[2].strip().strip("\"'"))
+if not os.environ.get("SENTRY_AUTH_TOKEN"):
+    sys.exit("SENTRY_AUTH_TOKEN is not set. Export it, or set env_file in config.json to a file that exports it.")
 ORG = CFG["sentry_org"]
 JIRA_SITE = CFG["jira_site"]
 REPO_DIR = os.path.expanduser(CFG["repo_dir"])

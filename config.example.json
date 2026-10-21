@@ -8,5 +8,6 @@
   "base_branch": "main",
   "jira_fields": {},
   "support_project": "SUP",
-  "support_bot": "claude-bot@example.com"
+  "support_bot": "claude-bot@example.com",
+  "env_file": "~/.config/sentry.env"
 }

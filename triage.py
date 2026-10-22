@@ -121,7 +121,7 @@ def create_ticket(item, result):
     description = (f"{result['root_cause']}\n\nSuggested fix: {result['fix_summary']}\n\n"
                    f"Severity (Claude's estimate): {result['severity']}\n{item['links']}\n\n"
                    "Created automatically by sentry-triage. Close it if it is not worth fixing.")
-    kind = "Bug" if result.get("category", "bug") == "bug" else "Task"
+    kind = "Bug" if result.get("category", "bug") == "bug" else "Story"
     payload = {"projectKey": JIRA_PROJECT, "type": kind, "summary": f"{item['prefix']} {result['title']}",
                "description": adf(description), "assignee": ASSIGNEE, "labels": [LABEL, item["label"]],
                "additionalAttributes": JIRA_FIELDS}
